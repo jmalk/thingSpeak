@@ -1,0 +1,206 @@
+/* 
+ This sketch connects to api.thingspeak.com and gets the latest
+ feed from a channel, in json format. e.g.
+ {"created_at":"2014-04-24T15:41:45+01:00","entry_id":98,"field1":"14","field2":"22"}
+ 
+ Circuit:
+ * GSM shield attached to an Arduino
+ * SIM card with a data plan
+ 
+ Adapted from GSM Web Client
+ http://arduino.cc/en/Tutorial/GSMExamplesWebClient
+ created 8 Mar 2012
+ by Tom Igoe
+ modified 24 Apr 2014
+ by Josh Malkinson @jmalk
+ 
+ */
+
+// libraries
+#include <GSM.h>
+#include <JsonParser.h>
+
+// PIN Number
+#define PINNUMBER ""
+
+// APN data
+// Change this to whatever SIM card you're using.
+// Google will help if you don't know the APN data.
+#define GPRS_APN       "giffgaff.com" // replace your GPRS APN
+#define GPRS_LOGIN     "giffgaff"    // replace with your GPRS login
+#define GPRS_PASSWORD  "password" // replace with your GPRS password
+
+// initialize the library instance
+GSMClient client;
+GPRS gprs;
+GSM gsmAccess; 
+
+// URL, path & port (for example: arduino.cc)
+char server[] = "api.thingspeak.com";
+// Change this to your channel's feed!
+char path[] = "/channels/11799/feed/last.json";
+int port = 80; // port 80 is the default for HTTP
+
+// String to store data from thingSpeak
+String thingSpeakData = "";
+
+
+void setup()
+{
+  
+  // initialize serial communications and wait for port to open:
+  Serial.begin(9600);
+  while (!Serial)
+  {
+    ; // wait for serial port to connect. Needed for Leonardo only
+  }
+
+  Serial.println("Starting ThingSpeak client and json parser.");
+  
+  // connection state
+  boolean notConnected = true;
+
+  // After starting the modem with GSM.begin()
+  // attach the shield to the GPRS network with the APN, login and password
+  while(notConnected)
+  {
+    if((gsmAccess.begin(PINNUMBER)==GSM_READY) &
+      (gprs.attachGPRS(GPRS_APN, GPRS_LOGIN, GPRS_PASSWORD)==GPRS_READY))
+      notConnected = false;
+    else
+    {
+      Serial.println("Not connected");
+      delay(1000);
+    }
+  }
+  
+  Serial.println("Connected to GSM.");
+  
+  doConnect(); // doConnect function connects to api.thingspeak and asks for data
+  
+}
+
+
+void loop()
+{
+  
+  boolean readJson = false;
+    
+  // If there are incoming bytes available 
+  // from the server, read them and add to data string. 
+  while (client.available())
+  {    
+    char c = client.read();
+    
+    // Open brace indicates the start of some json.
+    if(c == '{')
+    {
+      readJson = true;
+    }
+    
+    // Once you've seen an open brace, start adding chars to string.
+    if(readJson)
+    {
+      thingSpeakData.concat(c);
+    }
+
+    // At the end of the json, stop reading the json.
+    // But save the last brace or the parser won't like it.
+    if(c == '}')
+    {
+      readJson = false;
+      Serial.println(thingSpeakData);
+    }
+  } // End of while (client available) loop
+  
+  // If you have a string, parse it.
+  if(thingSpeakData != "")
+  {
+    // Parser works with char*, not String, so make one and put string in it.
+    char json[128];
+    thingSpeakData.toCharArray(json, 128);
+    
+    // For testing purposes, see if we really do have some json.
+    Serial.println(json);
+    
+    // Set up parser for when we receive data from thingSpeak
+    JsonParser<32> parser;
+    
+    // Now attempt to parse it and extract the ints
+    JsonHashTable data = parser.parseHashTable(json);
+    
+    if(!data.success())
+      {
+        Serial.println("Error parsing root");
+      }
+    
+    char* field1 = data.getString("field1");
+    char* field2 = data.getString("field2");
+    char* field3 = data.getString("field3");
+    char* field4 = data.getString("field4");
+    
+    
+    // Use array-to-int function to make character arrays into numbers.
+    int N = atoi(field1); // Intensity of light from North
+    int E = atoi(field2); // "----------------" from East
+    int S = atoi(field3); // "----------------" from South
+    int W = atoi(field4); // "----------------" from West
+    
+    
+    // Print the values to serial (testing purposes)
+    Serial.print("Nth: ");
+    Serial.println(N);  
+    Serial.print("Eas: ");
+    Serial.println(E);
+    Serial.print("Sth: ");
+    Serial.println(S);
+    Serial.print("Wes: ");
+    Serial.println(W);
+    Serial.print("Avg: ");
+    Serial.println((N+E+S+W)/4);
+   
+  }
+  
+  // Empty the string.
+  thingSpeakData = "";
+    
+  // if the server's disconnected, stop the client:
+  if (!client.available() && !client.connected())
+  {
+    Serial.println();
+    Serial.println("disconnecting.");
+    client.stop();
+    // delay(500);
+    // Connect again in case there's new data uploaded.
+    doConnect();   
+  }
+  
+} // End of loop()
+
+
+/************ Functions ************/
+  
+void doConnect() {
+  
+  Serial.println("connecting...");
+
+  // if you get a connection, report back via serial:
+  if (client.connect(server, port))
+  {
+    Serial.println("connected");
+    // Make a HTTP request:
+    client.print("GET ");
+    client.print(path);
+    client.println(" HTTP/1.1");
+    client.print("Host: ");
+    client.println(server);
+    client.println("Connection: close");
+    client.println();
+  } 
+  else
+  {
+    // if you didn't get a connection to the server:
+    Serial.println("connection failed");
+  }
+  
+} // End of doConnect()
